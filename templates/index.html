@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Customer Churn Prediction</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+{# Reusable dropdown: keeps the user's previous choice after submit #}
+{% macro select(name, label, options) %}
+  <div class="field">
+    <label for="{{ name }}">{{ label }}</label>
+    <select id="{{ name }}" name="{{ name }}" required>
+      <option value="" disabled {% if not form.get(name) %}selected{% endif %}>Select...</option>
+      {% for opt in options %}
+        {% set val = opt[0] %}
+        <option value="{{ val }}" {% if form.get(name) == val %}selected{% endif %}>{{ opt[1] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+{% endmacro %}
+
+{% set yesno = [('Yes','Yes'),('No','No')] %}
+{% set net = [('Yes','Yes'),('No','No'),('No internet service','No internet service')] %}
+
+<header class="hero">
+  <h1>Customer Churn Predictor</h1>
+  <p>Enter the customer's details to find out whether they are likely to leave the company.</p>
+</header>
+
+<main class="container">
+
+  {% if errors %}
+  <div class="alert alert-error" role="alert">
+    <strong>Please fix the following:</strong>
+    <ul>
+      {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if result %}
+  <div class="result {{ 'result-churn' if result.is_churn else 'result-stay' }}" id="result">
+    <div class="result-title">
+      {% if result.is_churn %}This customer is likely to leave{% else %}This customer is likely to stay{% endif %}
+    </div>
+    <div class="result-label">{{ result.label }}</div>
+    <div class="result-meta">
+      Churn probability: <strong>{{ result.probability }}%</strong> &nbsp;|&nbsp; Risk level: <strong>{{ result.risk }}</strong>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="samples">
+    <span>Quick test:</span>
+    <button type="button" class="btn-ghost" onclick="fillSample('churn')">Load likely-churn customer</button>
+    <button type="button" class="btn-ghost" onclick="fillSample('stay')">Load likely-stay customer</button>
+  </div>
+
+  <form method="POST" action="{{ url_for('predict') }}" id="churnForm" novalidate>
+
+    <section class="card">
+      <h2>Customer profile</h2>
+      <div class="grid">
+        {{ select('gender', 'Gender', [('Female','Female'),('Male','Male')]) }}
+        {{ select('SeniorCitizen', 'Senior citizen', [('0','No'),('1','Yes')]) }}
+        {{ select('Partner', 'Has a partner', yesno) }}
+        {{ select('Dependents', 'Has dependents', yesno) }}
+        <div class="field">
+          <label for="tenure">Tenure (months)</label>
+          <input type="number" id="tenure" name="tenure" min="0" max="72" step="1"
+                 placeholder="e.g. 12" value="{{ form.get('tenure', '') }}" required>
+          <small>How long the customer has been with the company (0-72).</small>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Services</h2>
+      <div class="grid">
+        {{ select('PhoneService', 'Phone service', yesno) }}
+        {{ select('MultipleLines', 'Multiple lines', [('No','No'),('Yes','Yes'),('No phone service','No phone service')]) }}
+        {{ select('InternetService', 'Internet service', [('DSL','DSL'),('Fiber optic','Fiber optic'),('No','No internet')]) }}
+        {{ select('OnlineSecurity', 'Online security', net) }}
+        {{ select('OnlineBackup', 'Online backup', net) }}
+        {{ select('DeviceProtection', 'Device protection', net) }}
+        {{ select('TechSupport', 'Tech support', net) }}
+        {{ select('StreamingTV', 'Streaming TV', net) }}
+        {{ select('StreamingMovies', 'Streaming movies', net) }}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Contract &amp; billing</h2>
+      <div class="grid">
+        {{ select('Contract', 'Contract type', [('Month-to-month','Month-to-month'),('One year','One year'),('Two year','Two year')]) }}
+        {{ select('PaperlessBilling', 'Paperless billing', yesno) }}
+        {{ select('PaymentMethod', 'Payment method', [
+            ('Electronic check','Electronic check'),
+            ('Mailed check','Mailed check'),
+            ('Bank transfer (automatic)','Bank transfer (automatic)'),
+            ('Credit card (automatic)','Credit card (automatic)')]) }}
+        <div class="field">
+          <label for="MonthlyCharges">Monthly charges ($)</label>
+          <input type="number" id="MonthlyCharges" name="MonthlyCharges" min="0" step="0.01"
+                 placeholder="e.g. 70.35" value="{{ form.get('MonthlyCharges', '') }}" required>
+        </div>
+        <div class="field">
+          <label for="TotalCharges">Total charges ($)</label>
+          <input type="number" id="TotalCharges" name="TotalCharges" min="0" step="0.01"
+                 placeholder="e.g. 845.50" value="{{ form.get('TotalCharges', '') }}" required>
+          <small>Total amount billed so far.</small>
+        </div>
+      </div>
+    </section>
+
+    <button type="submit" class="btn-primary">Predict Churn</button>
+  </form>
+</main>
+
+<footer>Customer Churn Prediction &middot; Artificial Intelligence, University of Lahore</footer>
+
+<script>
+  const INTERNET_FIELDS = ['OnlineSecurity','OnlineBackup','DeviceProtection','TechSupport','StreamingTV','StreamingMovies'];
+  const $ = id => document.getElementById(id);
+
+  // Keep dependent dropdowns consistent
+  function syncDependencies() {
+    if ($('PhoneService').value === 'No') $('MultipleLines').value = 'No phone service';
+    if ($('InternetService').value === 'No') INTERNET_FIELDS.forEach(f => $(f).value = 'No internet service');
+  }
+  $('PhoneService').addEventListener('change', syncDependencies);
+  $('InternetService').addEventListener('change', syncDependencies);
+
+  const SAMPLES = {
+    churn: { gender:'Female', SeniorCitizen:'0', Partner:'Yes', Dependents:'No', tenure:1,
+      PhoneService:'Yes', MultipleLines:'No', InternetService:'Fiber optic',
+      OnlineSecurity:'No', OnlineBackup:'No', DeviceProtection:'No', TechSupport:'No',
+      StreamingTV:'No', StreamingMovies:'No', Contract:'Month-to-month', PaperlessBilling:'Yes',
+      PaymentMethod:'Electronic check', MonthlyCharges:70.35, TotalCharges:70.35 },
+    stay: { gender:'Male', SeniorCitizen:'0', Partner:'Yes', Dependents:'Yes', tenure:48,
+      PhoneService:'Yes', MultipleLines:'Yes', InternetService:'DSL',
+      OnlineSecurity:'Yes', OnlineBackup:'Yes', DeviceProtection:'Yes', TechSupport:'Yes',
+      StreamingTV:'No', StreamingMovies:'No', Contract:'Two year', PaperlessBilling:'No',
+      PaymentMethod:'Credit card (automatic)', MonthlyCharges:65.20, TotalCharges:3129.60 }
+  };
+  function fillSample(kind) {
+    Object.entries(SAMPLES[kind]).forEach(([k, v]) => { $(k).value = v; });
+    window.scrollTo({ top: document.querySelector('form').offsetTop - 20, behavior: 'smooth' });
+  }
+
+  // Scroll to the result / errors after submit
+  const target = document.getElementById('result') || document.querySelector('.alert-error');
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+</script>
+</body>
+</html>
